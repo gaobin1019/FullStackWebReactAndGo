@@ -6,9 +6,17 @@ import (
 	"encoding/json"
 	"log"
 	"strconv"
+	"gopkg.in/olivere/elastic.v3"
+	"github.com/pborman/uuid"
+	"reflect"
 )
 
-const DISTANCE = "200km"
+const(
+	DISTANCE = "200km"
+	ES_URL = "http://35.196.32.72:9200"
+	INDEX = "around"
+	TYPE = "post"
+)
 
 type Location struct {
 	Lat float64 `json:"lat"`
@@ -22,7 +30,37 @@ type Post struct {
 }
 
 func main() {
-	fmt.Println("Service started")
+	client, err := elastic.NewClient(elastic.SetURL(ES_URL), elastic.SetSniff(false))
+	if err != nil {
+		panic(err)
+		return
+	}
+
+	exists, err := client.IndexExists(INDEX).Do()
+	if err != nil {
+		panic(err)
+	}
+
+	if !exists {
+		mapping := `{
+			"mappings":{
+				"post":{
+					"properties":{
+						"location":{
+							"type":"geo_point"
+						}
+					}
+				}
+			}
+		}`
+
+		_, err := client.CreateIndex(INDEX).Body(mapping).Do()
+		if err != nil {
+			panic(err)
+		}
+	}
+
+	fmt.Println("Service started at 8081")
 	http.HandleFunc("/post", handlerPost)
 	http.HandleFunc("/search", handlerSearch)
 	log.Fatal(http.ListenAndServe(":8081", nil))
@@ -37,6 +75,29 @@ func handlerPost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	fmt.Fprintf(w, "Post received: %s\n", p.Message)
+
+	id := uuid.New()
+	saveToES(&p, id)
+}
+
+func saveToES(p *Post, id string) {
+	client, err := elastic.NewClient(elastic.SetURL(ES_URL), elastic.SetSniff(false))
+	if err != nil {
+		panic(err)
+		return
+	}
+
+	_, err = client.
+		Index().
+		Index(INDEX).
+		Type(TYPE).
+		Id(id).
+		BodyJson(p).
+		Refresh(true).
+		Do()
+	if err != nil {
+		panic(err)
+	}
 }
 
 func handlerSearch(w http.ResponseWriter, r *http.Request) {
@@ -60,22 +121,48 @@ func handlerSearch(w http.ResponseWriter, r *http.Request) {
 
 	fmt.Fprintf(w, "search received: %v %v %v\n", lat, lon, ran)
 
-	//return a fake post
-	p := &Post{
-		User: "gaobin",
-		Message: "hello",
-		Location: Location{
-			Lat:lat,
-			Lon:lon,
-		},
+	//connect to elastic search
+	client, err := elastic.NewClient(elastic.SetURL(ES_URL), elastic.SetSniff(false))
+	if err != nil {
+		panic(err)
+		return
 	}
 
-	js, err := json.Marshal(p)
+	//define geo query
+	q := elastic.NewGeoDistanceQuery("location")
+	q = q.Distance(ran).Lat(lat).Lon(lon)
+
+	searchResult, err := client.Search().
+		Index(INDEX).
+		Query(q).
+		Pretty(true).
+		Do()
+
+	if err != nil {
+		panic(err)
+		return
+	}
+
+	fmt.Printf("Query took %d milliseconds\n", searchResult.TookInMillis)
+	fmt.Printf("found a total of %d posts\n", searchResult.TotalHits())
+
+	var typ Post
+	var ps []Post
+
+	for _, item := range searchResult.Each(reflect.TypeOf(typ)) {
+		p := item.(Post)
+		fmt.Printf("Post by %s: %s at lat: %v and lon: %v\n", p.User, p.Message, p.Location.Lat, p.Location.Lon)
+		//todo, filter
+		ps = append(ps, p)
+	}
+
+	js, err := json.MarshalIndent(ps, "", "\t")
 	if err != nil {
 		panic(err)
 		return
 	}
 
 	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Access-Control-Allow-Origin", "*")
 	w.Write(js)
 }
