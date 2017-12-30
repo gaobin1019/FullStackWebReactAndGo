@@ -9,6 +9,7 @@ import (
 	"gopkg.in/olivere/elastic.v3"
 	"github.com/pborman/uuid"
 	"reflect"
+	"strings"
 )
 
 const(
@@ -16,7 +17,7 @@ const(
 	ES_URL = "http://35.196.32.72:9200"
 	INDEX = "around"
 	TYPE = "post"
-	PROJECT_ID = "aroundreact-190120"
+	//PROJECT_ID = "aroundreact-190120"
 
 )
 
@@ -155,7 +156,9 @@ func handlerSearch(w http.ResponseWriter, r *http.Request) {
 		p := item.(Post)
 		fmt.Printf("Post by %s: %s at lat: %v and lon: %v\n", p.User, p.Message, p.Location.Lat, p.Location.Lon)
 		//todo, filter
-		ps = append(ps, p)
+		if !containsFilteredWords(&p.Message) {
+			ps = append(ps, p)
+		}
 	}
 
 	js, err := json.MarshalIndent(ps, "", "\t")
@@ -167,4 +170,18 @@ func handlerSearch(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Access-Control-Allow-Origin", "*")
 	w.Write(js)
+}
+
+func containsFilteredWords(s *string) bool {
+	filterWords := []string {
+		"fuck",
+	}
+
+	for _, word := range filterWords {
+		if strings.Contains(*s, word) {
+			return true
+		}
+	}
+
+	return false
 }
