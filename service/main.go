@@ -16,6 +16,8 @@ const(
 	ES_URL = "http://35.196.32.72:9200"
 	INDEX = "around"
 	TYPE = "post"
+	PROJECT_ID = "aroundreact-190120"
+
 )
 
 type Location struct {
@@ -60,10 +62,10 @@ func main() {
 		}
 	}
 
-	fmt.Println("Service started at 8081")
+	fmt.Println("Service started at 8080")
 	http.HandleFunc("/post", handlerPost)
 	http.HandleFunc("/search", handlerSearch)
-	log.Fatal(http.ListenAndServe(":8081", nil))
+	log.Fatal(http.ListenAndServe(":8080", nil))
 }
 
 func handlerPost(w http.ResponseWriter, r *http.Request) {
