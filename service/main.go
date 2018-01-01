@@ -10,14 +10,17 @@ import (
 	"github.com/pborman/uuid"
 	"reflect"
 	"strings"
+	"context"
+	"cloud.google.com/go/bigtable"
 )
 
 const(
 	DISTANCE = "200km"
-	ES_URL = "http://35.196.32.72:9200"
+	ES_URL = "http://35.227.112.101:9200"
 	INDEX = "around"
 	TYPE = "post"
-	//PROJECT_ID = "aroundreact-190120"
+	PROJECT_ID = "aroundreact-190120"
+	BT_INSTANCE= "around-post"
 
 )
 
@@ -80,7 +83,34 @@ func handlerPost(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, "Post received: %s\n", p.Message)
 
 	id := uuid.New()
+
+	//save to Elastic Search
 	saveToES(&p, id)
+	//save to big table
+	saveToBT(&p, id)
+}
+
+func saveToBT(p *Post, id string) {
+	ctx := context.Background()
+	bt_client, err := bigtable.NewClient(ctx, PROJECT_ID, BT_INSTANCE)
+	if err != nil {
+		panic(err)
+		return
+	}
+
+	tbl := bt_client.Open("post")
+	mut := bigtable.NewMutation()
+	mut.Set("post", "user", bigtable.Now(), []byte(p.User))
+	mut.Set("post", "message", bigtable.Now(), []byte(p.Message))
+
+	mut.Set("location", "lat", bigtable.Now(), []byte(strconv.FormatFloat(p.Location.Lat, 'f', -1, 64)))
+	mut.Set("location", "lon", bigtable.Now(), []byte(strconv.FormatFloat(p.Location.Lon, 'f', -1, 64)))
+
+	err = tbl.Apply(ctx, id, mut)
+	if err != nil {
+		panic(err)
+	}
+	fmt.Printf("Post is saved to BigTable: %s\n", p.Message)
 }
 
 func saveToES(p *Post, id string) {
@@ -101,6 +131,7 @@ func saveToES(p *Post, id string) {
 	if err != nil {
 		panic(err)
 	}
+	fmt.Printf("Post is saved to elasticSearch: %s\n", p.Message)
 }
 
 func handlerSearch(w http.ResponseWriter, r *http.Request) {
