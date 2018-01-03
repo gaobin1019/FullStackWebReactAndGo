@@ -86,8 +86,9 @@ func handlerPost(w http.ResponseWriter, r *http.Request) {
 
 	//save to Elastic Search
 	saveToES(&p, id)
+
 	//save to big table
-	saveToBT(&p, id)
+	//saveToBT(&p, id)
 }
 
 func saveToBT(p *Post, id string) {
@@ -186,7 +187,6 @@ func handlerSearch(w http.ResponseWriter, r *http.Request) {
 	for _, item := range searchResult.Each(reflect.TypeOf(typ)) {
 		p := item.(Post)
 		fmt.Printf("Post by %s: %s at lat: %v and lon: %v\n", p.User, p.Message, p.Location.Lat, p.Location.Lon)
-		//todo, filter
 		if !containsFilteredWords(&p.Message) {
 			ps = append(ps, p)
 		}
