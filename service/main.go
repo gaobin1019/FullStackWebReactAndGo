@@ -11,16 +11,19 @@ import (
 	"reflect"
 	"strings"
 	"context"
-	"cloud.google.com/go/bigtable"
+	//"cloud.google.com/go/bigtable"
+	"cloud.google.com/go/storage"
+	"io"
 )
 
 const(
 	DISTANCE = "200km"
-	ES_URL = "http://35.227.112.101:9200"
+	ES_URL = "http://35.196.156.82:9200"
 	INDEX = "around"
 	TYPE = "post"
-	PROJECT_ID = "aroundreact-190120"
-	BT_INSTANCE= "around-post"
+	//PROJECT_ID = "aroundreact-190120"
+	//BT_INSTANCE = "around-post"
+	BUCKET_NAME = "post-images-190120"
 
 )
 
@@ -33,6 +36,7 @@ type Post struct {
 	User string `json:"user"`
 	Message string `json:"message"`
 	Location Location `json:"location"`
+	Url string `json:"url"`
 }
 
 func main() {
@@ -73,24 +77,90 @@ func main() {
 }
 
 func handlerPost(w http.ResponseWriter, r *http.Request) {
-	fmt.Println("Received a post request")
-	decoder := json.NewDecoder(r.Body)
-	var p Post
-	if err := decoder.Decode(&p); err != nil {
-		panic(err)
-		return
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.Header().Set("Access-Control-Allow-Headers", "Content-Type,Authorization")
+	//32MB
+	r.ParseMultipartForm(32 << 20)
+
+	fmt.Println("Received a post request: %s\n", r.FormValue("message"))
+	lat,_ := strconv.ParseFloat(r.FormValue("lat"), 64)
+	lon,_ := strconv.ParseFloat(r.FormValue("lon"), 64)
+
+	p := &Post{
+		User: r.FormValue("user"),
+		Message: r.FormValue("message"),
+		Location: Location{
+			Lat: lat,
+			Lon: lon,
+		},
 	}
-	fmt.Fprintf(w, "Post received: %s\n", p.Message)
 
 	id := uuid.New()
 
+	file, _, err := r.FormFile("image")
+	if err != nil {	//force a post to have an image
+		http.Error(w, "Image is not available", http.StatusInternalServerError) //500 error
+		fmt.Printf("Image is not available %v.\n", err)
+		return
+	}
+
+	ctx := context.Background()
+
+	defer file.Close()
+	_, attrs, err := saveToGCS(ctx, file, BUCKET_NAME, id)
+	if err != nil {
+		http.Error(w, "GCS is not setup", http.StatusInternalServerError) //500 error
+		fmt.Printf("GCS is not setup %v.\n", err)
+		return
+	}
+
+	p.Url = attrs.MediaLink
+
 	//save to Elastic Search
-	saveToES(&p, id)
+	saveToES(p, id)
 
 	//save to big table
 	//saveToBT(&p, id)
+
+	//save to google cloud storage
 }
 
+func saveToGCS(ctx context.Context, file io.Reader, bucket, name string) (*storage.ObjectHandle, *storage.ObjectAttrs, error){
+	//create a client
+	client, err := storage.NewClient(ctx)
+	if err != nil {
+		log.Fatalf("Failed to create client: %v", err)
+	}
+	defer client.Close()
+
+	bh := client.Bucket(bucket)
+	//check if the bucket exists
+	if _, err = bh.Attrs(ctx); err != nil {
+		return nil, nil, err
+	}
+
+	obj := bh.Object(name)
+	w := obj.NewWriter(ctx)
+	if _, err := io.Copy(w, file); err != nil {
+		return nil, nil, err
+	}
+	if err := w.Close(); err != nil {
+		return nil, nil, err
+	}
+
+	//set access control to public read
+	if err := obj.ACL().Set(ctx, storage.AllUsers, storage.RoleReader); err != nil {
+		return nil, nil, err
+	}
+
+	attrs, err := obj.Attrs(ctx)
+	fmt.Printf("Post is saved to GCS: %s\n", attrs.MediaLink)
+	return obj, attrs, err
+}
+
+//save to google bigtable, VERY EXPANSIVE!!! was not enabled for now
+/*
 func saveToBT(p *Post, id string) {
 	ctx := context.Background()
 	bt_client, err := bigtable.NewClient(ctx, PROJECT_ID, BT_INSTANCE)
@@ -113,6 +183,7 @@ func saveToBT(p *Post, id string) {
 	}
 	fmt.Printf("Post is saved to BigTable: %s\n", p.Message)
 }
+*/
 
 func saveToES(p *Post, id string) {
 	client, err := elastic.NewClient(elastic.SetURL(ES_URL), elastic.SetSniff(false))
@@ -186,7 +257,7 @@ func handlerSearch(w http.ResponseWriter, r *http.Request) {
 
 	for _, item := range searchResult.Each(reflect.TypeOf(typ)) {
 		p := item.(Post)
-		fmt.Printf("Post by %s: %s at lat: %v and lon: %v\n", p.User, p.Message, p.Location.Lat, p.Location.Lon)
+		fmt.Printf("Post with message %s: %s, at lat: %v and lon: %v\n", p.User, p.Message, p.Location.Lat, p.Location.Lon)
 		if !containsFilteredWords(&p.Message) {
 			ps = append(ps, p)
 		}
