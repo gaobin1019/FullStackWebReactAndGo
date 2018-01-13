@@ -89,7 +89,7 @@ func handlerPost(w http.ResponseWriter, r *http.Request) {
 	//32MB
 	r.ParseMultipartForm(32 << 20)
 
-	fmt.Println("Received a post request: %s\n", r.FormValue("message"))
+	fmt.Println("Received a post request: %v.\n", r.FormValue("message"))
 	lat,_ := strconv.ParseFloat(r.FormValue("lat"), 64)
 	lon,_ := strconv.ParseFloat(r.FormValue("lon"), 64)
 
