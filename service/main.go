@@ -14,17 +14,9 @@ import (
 	//"cloud.google.com/go/bigtable"
 	"cloud.google.com/go/storage"
 	"io"
-)
-
-const(
-	DISTANCE = "200km"
-	ES_URL = "http://35.196.156.82:9200"
-	INDEX = "around"
-	TYPE = "post"
-	//PROJECT_ID = "aroundreact-190120"
-	//BT_INSTANCE = "around-post"
-	BUCKET_NAME = "post-images-190120"
-
+	"github.com/auth0/go-jwt-middleware"
+	"github.com/dgrijalva/jwt-go"
+	"github.com/gorilla/mux"
 )
 
 type Location struct {
@@ -70,10 +62,24 @@ func main() {
 		}
 	}
 
-	fmt.Println("Service started at 8080")
-	http.HandleFunc("/post", handlerPost)
-	http.HandleFunc("/search", handlerSearch)
-	log.Fatal(http.ListenAndServe(":8080", nil))
+	fmt.Printf("Service started at %s.\n", TCP_PORT)
+
+	r := mux.NewRouter()
+
+	var jwtMiddleware = jwtmiddleware.New(jwtmiddleware.Options{
+		ValidationKeyGetter: func(token *jwt.Token)(interface{}, error) {
+			return privateKey, nil
+		},
+		SigningMethod: jwt.SigningMethodHS256,
+	})
+
+	r.Handle("/post", jwtMiddleware.Handler(http.HandlerFunc(handlerPost))).Methods("POST")
+	r.Handle("/search", jwtMiddleware.Handler(http.HandlerFunc(handlerSearch))).Methods("GET")
+	r.Handle("/login", http.HandlerFunc(handlerLogin)).Methods("POST")
+	r.Handle("/signup", http.HandlerFunc(handlerSignUp)).Methods("POST")
+
+	http.Handle("/", r)
+	log.Fatal(http.ListenAndServe(TCP_PORT, nil))
 }
 
 func handlerPost(w http.ResponseWriter, r *http.Request) {
@@ -87,8 +93,12 @@ func handlerPost(w http.ResponseWriter, r *http.Request) {
 	lat,_ := strconv.ParseFloat(r.FormValue("lat"), 64)
 	lon,_ := strconv.ParseFloat(r.FormValue("lon"), 64)
 
+	user := r.Context().Value("user")
+	claims := user.(*jwt.Token).Claims
+	username := claims.(jwt.MapClaims)["username"]
+
 	p := &Post{
-		User: r.FormValue("user"),
+		User: username.(string),
 		Message: r.FormValue("message"),
 		Location: Location{
 			Lat: lat,
@@ -108,6 +118,7 @@ func handlerPost(w http.ResponseWriter, r *http.Request) {
 	ctx := context.Background()
 
 	defer file.Close()
+	//save to google cloud storage
 	_, attrs, err := saveToGCS(ctx, file, BUCKET_NAME, id)
 	if err != nil {
 		http.Error(w, "GCS is not setup", http.StatusInternalServerError) //500 error
@@ -122,8 +133,6 @@ func handlerPost(w http.ResponseWriter, r *http.Request) {
 
 	//save to big table
 	//saveToBT(&p, id)
-
-	//save to google cloud storage
 }
 
 func saveToGCS(ctx context.Context, file io.Reader, bucket, name string) (*storage.ObjectHandle, *storage.ObjectAttrs, error){
@@ -159,7 +168,7 @@ func saveToGCS(ctx context.Context, file io.Reader, bucket, name string) (*stora
 	return obj, attrs, err
 }
 
-//save to google bigtable, VERY EXPANSIVE!!! was not enabled for now
+//save to google bigtable, VERY EXPANSIVE!!! disabled for now
 /*
 func saveToBT(p *Post, id string) {
 	ctx := context.Background()
