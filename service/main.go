@@ -17,6 +17,8 @@ import (
 	"github.com/auth0/go-jwt-middleware"
 	"github.com/dgrijalva/jwt-go"
 	"github.com/gorilla/mux"
+	"github.com/go-redis/redis"
+	"time"
 )
 
 type Location struct {
@@ -62,7 +64,7 @@ func main() {
 		}
 	}
 
-	fmt.Printf("Service started at %s.\n", TCP_PORT)
+	fmt.Printf("***Service started at %s.\n", TCP_PORT)
 
 	r := mux.NewRouter()
 
@@ -89,7 +91,7 @@ func handlerPost(w http.ResponseWriter, r *http.Request) {
 	//32MB
 	r.ParseMultipartForm(32 << 20)
 
-	fmt.Println("Received a post request: %v.\n", r.FormValue("message"))
+	fmt.Printf("***Received a post request: %v.\n", r.FormValue("message"))
 	lat,_ := strconv.ParseFloat(r.FormValue("lat"), 64)
 	lon,_ := strconv.ParseFloat(r.FormValue("lon"), 64)
 
@@ -111,7 +113,7 @@ func handlerPost(w http.ResponseWriter, r *http.Request) {
 	file, _, err := r.FormFile("image")
 	if err != nil {	//force a post to have an image
 		http.Error(w, "Image is not available", http.StatusInternalServerError) //500 error
-		fmt.Printf("Image is not available %v.\n", err)
+		fmt.Printf("***Image is not available %v.\n", err)
 		return
 	}
 
@@ -122,7 +124,7 @@ func handlerPost(w http.ResponseWriter, r *http.Request) {
 	_, attrs, err := saveToGCS(ctx, file, BUCKET_NAME, id)
 	if err != nil {
 		http.Error(w, "GCS is not setup", http.StatusInternalServerError) //500 error
-		fmt.Printf("GCS is not setup %v.\n", err)
+		fmt.Printf("***GCS is not setup %v.\n", err)
 		return
 	}
 
@@ -139,7 +141,7 @@ func saveToGCS(ctx context.Context, file io.Reader, bucket, name string) (*stora
 	//create a client
 	client, err := storage.NewClient(ctx)
 	if err != nil {
-		log.Fatalf("Failed to create client: %v", err)
+		log.Fatalf("***Failed to create client: %v", err)
 	}
 	defer client.Close()
 
@@ -164,7 +166,7 @@ func saveToGCS(ctx context.Context, file io.Reader, bucket, name string) (*stora
 	}
 
 	attrs, err := obj.Attrs(ctx)
-	fmt.Printf("Post is saved to GCS: %s\n", attrs.MediaLink)
+	fmt.Printf("***Post is saved to GCS: %s\n", attrs.MediaLink)
 	return obj, attrs, err
 }
 
@@ -212,11 +214,11 @@ func saveToES(p *Post, id string) {
 	if err != nil {
 		panic(err)
 	}
-	fmt.Printf("Post is saved to elasticSearch: %s\n", p.Message)
+	fmt.Printf("***Post is saved to elasticSearch: %s\n", p.Message)
 }
 
 func handlerSearch(w http.ResponseWriter, r *http.Request) {
-	fmt.Println("Received a search request")
+	fmt.Println("***Received a search request")
 	lat, err := strconv.ParseFloat(r.URL.Query().Get("lat"), 64)
 	if err != nil {
 		panic(err)
@@ -235,6 +237,27 @@ func handlerSearch(w http.ResponseWriter, r *http.Request) {
 	}
 
 	fmt.Fprintf(w, "search received: %v %v %v\n", lat, lon, ran)
+
+	//search on redis first
+	key := r.URL.Query().Get("lat") + ":" + r.URL.Query().Get("lon") + ":" + ran
+
+	if ENABLE_MEMCACHE {
+		rs_client := redis.NewClient(&redis.Options{
+			Addr: REDIS_URL,
+			Password:"",
+			DB: 0, //default
+		})
+
+		val, err := rs_client.Get(key).Result()
+		if err != nil {
+			fmt.Printf("***Redis cannot find the key %s as %v.\n", key, err)
+		} else {
+			fmt.Printf("***Redis find the key %s.\nReturning value from cache.\n", key)
+			w.Header().Set("Content-Type", "application/json")
+			w.Write([]byte(val))
+			return
+		}
+	}
 
 	//connect to elastic search
 	client, err := elastic.NewClient(elastic.SetURL(ES_URL), elastic.SetSniff(false))
@@ -258,15 +281,15 @@ func handlerSearch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	fmt.Printf("Query took %d milliseconds\n", searchResult.TookInMillis)
-	fmt.Printf("found a total of %d posts\n", searchResult.TotalHits())
+	fmt.Printf("***Query took %d milliseconds\n", searchResult.TookInMillis)
+	fmt.Printf("***found a total of %d posts\n", searchResult.TotalHits())
 
 	var typ Post
 	var ps []Post
 
 	for _, item := range searchResult.Each(reflect.TypeOf(typ)) {
 		p := item.(Post)
-		fmt.Printf("Post with message %s: %s, at lat: %v and lon: %v\n", p.User, p.Message, p.Location.Lat, p.Location.Lon)
+		fmt.Printf("***Post with message %s: %s, at lat: %v and lon: %v\n", p.User, p.Message, p.Location.Lat, p.Location.Lon)
 		if !containsFilteredWords(&p.Message) {
 			ps = append(ps, p)
 		}
@@ -276,6 +299,20 @@ func handlerSearch(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		panic(err)
 		return
+	}
+
+	//save to redis
+	if ENABLE_MEMCACHE {
+		rs_client := redis.NewClient(&redis.Options{
+			Addr: REDIS_URL,
+			Password: "",
+			DB: 0,
+		})
+
+		err := rs_client.Set(key, string(js), 1*time.Second).Err()		//ttl 1 second
+		if err != nil {
+			fmt.Printf("***Redis cannot save the key %s because %v. \n", key, err)
+		}
 	}
 
 	w.Header().Set("Content-Type", "application/json")

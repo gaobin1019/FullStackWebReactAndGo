@@ -9,5 +9,7 @@ const(
 	//BT_INSTANCE = "around-post"
 	BUCKET_NAME = "post-images-190120"
 	TYPE_USER = "user"
-	TCP_PORT = ":8081"
+	TCP_PORT = ":8080"
+	ENABLE_MEMCACHE = true
+	REDIS_URL = "redis-14108.c1.us-central1-2.gce.cloud.redislabs.com:14108"
 )
