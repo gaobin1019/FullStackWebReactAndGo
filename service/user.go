@@ -25,8 +25,8 @@ func checkUser(username, password string) bool {
 		return false;
 	}
 
-	//Search with a term query
-	termQuery := elastic.NewTermQuery("username", username)
+	//Search with a match query
+	termQuery := elastic.NewMatchQuery("username", username)
 	queryResult, err := es_client.Search().
 		Index(INDEX).
 		Query(termQuery).
@@ -61,8 +61,8 @@ func addUser(username, password string) bool {
 		Password: password,
 	}
 
-	//Search with a term query
-	termQuery := elastic.NewTermQuery("username", username)
+	//Search with a match query
+	termQuery := elastic.NewMatchQuery("username", username)
 	queryResult, err := es_client.Search().
 		Index(INDEX).
 		Query(termQuery).
@@ -95,7 +95,7 @@ func addUser(username, password string) bool {
 }
 
 func handlerSignUp(w http.ResponseWriter, r *http.Request) {
-	fmt.Println("Received on signup request")
+	fmt.Println("Received a signup request")
 	w.Header().Set("Content-Type", "text/plain")
 	w.Header().Set("Access-Control-Allow-Origin", "*")
 
@@ -125,7 +125,7 @@ func handlerSignUp(w http.ResponseWriter, r *http.Request) {
 }
 
 func handlerLogin(w http.ResponseWriter, r *http.Request) {
-	fmt.Println("Received on login request")
+	fmt.Println("Received a login request")
 
 	w.Header().Set("Content-Type", "text/plain")
 	w.Header().Set("Access-Control-Allow-Origin", "*")
