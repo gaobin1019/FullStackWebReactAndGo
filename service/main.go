@@ -77,8 +77,8 @@ func main() {
 
 	r.Handle("/post", jwtMiddleware.Handler(http.HandlerFunc(handlerPost)))
 	r.Handle("/search", jwtMiddleware.Handler(http.HandlerFunc(handlerSearch)))
-	r.Handle("/login", http.HandlerFunc(handlerLogin)).Methods("POST")
-	r.Handle("/signup", http.HandlerFunc(handlerSignUp)).Methods("POST")
+	r.Handle("/login", http.HandlerFunc(handlerLogin))
+	r.Handle("/signup", http.HandlerFunc(handlerSignUp))
 
 	http.Handle("/", r)
 	log.Fatal(http.ListenAndServe(TCP_PORT, nil))

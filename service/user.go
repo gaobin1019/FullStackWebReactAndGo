@@ -96,6 +96,12 @@ func addUser(username, password string) bool {
 
 func handlerSignUp(w http.ResponseWriter, r *http.Request) {
 	fmt.Println("Received on signup request")
+	w.Header().Set("Content-Type", "text/plain")
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+
+	if r.Method != "POST" {
+		return
+	}
 
 	decoder := json.NewDecoder(r.Body)
 	var u User
@@ -116,13 +122,17 @@ func handlerSignUp(w http.ResponseWriter, r *http.Request) {
 		fmt.Println("Empty password or username")
 		http.Error(w, "Empty password or username", http.StatusInternalServerError)
 	}
-
-	w.Header().Set("Content-Type", "text/plain")
-	w.Header().Set("Access-Control-Allow-Origin", "*")
 }
 
 func handlerLogin(w http.ResponseWriter, r *http.Request) {
 	fmt.Println("Received on login request")
+
+	w.Header().Set("Content-Type", "text/plain")
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+
+	if r.Method != "POST" {
+		return
+	}
 
 	decoder := json.NewDecoder(r.Body)
 	var u User
@@ -147,7 +157,4 @@ func handlerLogin(w http.ResponseWriter, r *http.Request) {
 		fmt.Println("invalid password or username.")
 		http.Error(w, "Invalid password or username", http.StatusForbidden)
 	}
-
-	w.Header().Set("Content-Type", "text/plain")
-	w.Header().Set("Access-Control-Allow-Origin", "*")
 }
